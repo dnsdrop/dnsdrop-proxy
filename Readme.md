@@ -1,4 +1,4 @@
-DNS-over-HTTPS
+DNS-over-HTTPS (with DNSDrop mods)
 ==============
 
 Client and server software to query DNS over HTTPS, using [Google DNS-over-HTTPS protocol](https://developers.google.com/speed/public-dns/docs/dns-over-https)
