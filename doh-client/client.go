@@ -25,6 +25,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"math/rand"
@@ -41,7 +42,6 @@ import (
 	"github.com/m13253/dns-over-https/doh-client/selector"
 	"github.com/m13253/dns-over-https/json-dns"
 	"github.com/miekg/dns"
-	"golang.org/x/net/http2"
 	"golang.org/x/net/idna"
 )
 
@@ -171,6 +171,12 @@ func NewClient(conf *config.Config) (c *Client, err error) {
 			}
 		}
 
+		for _, u := range c.conf.Upstream.UpstreamDNSDrop {
+			if err := s.Add(u.URL, selector.DNSDrop, u.Weight); err != nil {
+				return nil, err
+			}
+		}
+
 		c.selector = s
 
 	case config.LVSWRR:
@@ -187,6 +193,12 @@ func NewClient(conf *config.Config) (c *Client, err error) {
 
 		for _, u := range c.conf.Upstream.UpstreamIETF {
 			if err := s.Add(u.URL, selector.IETF, u.Weight); err != nil {
+				return nil, err
+			}
+		}
+
+		for _, u := range c.conf.Upstream.UpstreamDNSDrop {
+			if err := s.Add(u.URL, selector.DNSDrop, u.Weight); err != nil {
 				return nil, err
 			}
 		}
@@ -208,6 +220,12 @@ func NewClient(conf *config.Config) (c *Client, err error) {
 
 		for _, u := range c.conf.Upstream.UpstreamIETF {
 			if err := s.Add(u.URL, selector.IETF); err != nil {
+				return nil, err
+			}
+		}
+
+		for _, u := range c.conf.Upstream.UpstreamDNSDrop {
+			if err := s.Add(u.URL, selector.DNSDrop); err != nil {
 				return nil, err
 			}
 		}
@@ -240,6 +258,9 @@ func (c *Client) newHTTPClient() error {
 		Resolver: c.bootstrapResolver,
 	}
 	c.httpTransport = &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
 		DialContext:           dialer.DialContext,
 		ExpectContinueTimeout: 1 * time.Second,
 		IdleConnTimeout:       90 * time.Second,
@@ -256,10 +277,12 @@ func (c *Client) newHTTPClient() error {
 			return dialer.DialContext(ctx, network, address)
 		}
 	}
-	err := http2.ConfigureTransport(c.httpTransport)
-	if err != nil {
-		return err
-	}
+	/*
+		err := http2.ConfigureTransport(c.httpTransport)
+		if err != nil {
+			return err
+		}
+	*/
 	c.httpClient = &http.Client{
 		Transport: c.httpTransport,
 		Jar:       c.cookieJar,
@@ -373,11 +396,12 @@ func (c *Client) handlerFunc(w dns.ResponseWriter, r *dns.Msg, isTCP bool) {
 	switch requestType {
 	case "application/dns-json":
 		req = c.generateRequestGoogle(ctx, w, r, isTCP, upstream)
-
 	case "application/dns-message":
 		req = c.generateRequestIETF(ctx, w, r, isTCP, upstream)
-
+	case "application/dnsdrop-json":
+		req = c.generateRequestDNSDrop(ctx, w, r, isTCP, upstream)
 	default:
+		fmt.Println(requestType)
 		panic("Unknown request Content-Type")
 	}
 
@@ -406,7 +430,8 @@ func (c *Client) handlerFunc(w dns.ResponseWriter, r *dns.Msg, isTCP bool) {
 	switch candidateType {
 	case "application/json":
 		c.parseResponseGoogle(ctx, w, r, isTCP, req)
-
+	case "application/dnsdrop-json":
+		c.parseResponseDNSDrop(ctx, w, r, isTCP, req)
 	case "application/dns-message", "application/dns-udpwireformat":
 		c.parseResponseIETF(ctx, w, r, isTCP, req)
 

@@ -43,6 +43,7 @@ type upstreamDetail struct {
 type upstream struct {
 	UpstreamGoogle   []upstreamDetail `toml:"upstream_google"`
 	UpstreamIETF     []upstreamDetail `toml:"upstream_ietf"`
+	UpstreamDNSDrop  []upstreamDetail `toml:"upstream_dnsdrop"`
 	UpstreamSelector string           `toml:"upstream_selector"` // usable: random or weighted_random
 }
 
@@ -76,7 +77,7 @@ func LoadConfig(path string) (*Config, error) {
 	if len(conf.Listen) == 0 {
 		conf.Listen = []string{"127.0.0.1:53", "[::1]:53"}
 	}
-	if len(conf.Upstream.UpstreamGoogle) == 0 && len(conf.Upstream.UpstreamIETF) == 0 {
+	if len(conf.Upstream.UpstreamGoogle) == 0 && len(conf.Upstream.UpstreamIETF) == 0 && len(conf.Upstream.UpstreamDNSDrop) == 0 {
 		conf.Upstream.UpstreamGoogle = []upstreamDetail{{URL: "https://dns.google.com/resolve", Weight: 50}}
 	}
 	if conf.Other.Timeout == 0 {

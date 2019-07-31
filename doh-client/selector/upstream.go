@@ -7,11 +7,13 @@ type UpstreamType int
 const (
 	Google UpstreamType = iota
 	IETF
+	DNSDrop
 )
 
 var typeMap = map[UpstreamType]string{
-	Google: "Google",
-	IETF:   "IETF",
+	Google:  "Google",
+	IETF:    "IETF",
+	DNSDrop: "DNSDrop",
 }
 
 type Upstream struct {

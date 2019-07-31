@@ -33,6 +33,12 @@ func (rs *RandomSelector) Add(url string, upstreamType UpstreamType) (err error)
 			URL:         url,
 			RequestType: "application/dns-message",
 		})
+	case DNSDrop:
+		rs.upstreams = append(rs.upstreams, &Upstream{
+			Type:        DNSDrop,
+			URL:         url,
+			RequestType: "application/dnsdrop-json",
+		})
 
 	default:
 		return errors.New("unknown upstream type")

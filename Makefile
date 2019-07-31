@@ -3,7 +3,7 @@
 PREFIX = /usr/local
 
 ifeq ($(GOROOT),)
-GOBUILD = go build
+GOBUILD = GOOS=linux GOARCH=386 go build
 GOGET = go get -d -v
 GOGET_UPDATE = go get -d -u -v
 else

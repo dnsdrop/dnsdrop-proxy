@@ -40,7 +40,14 @@ func (ws *NginxWRRSelector) Add(url string, upstreamType UpstreamType, weight in
 			weight:          weight,
 			effectiveWeight: weight,
 		})
-
+	case DNSDrop:
+		ws.upstreams = append(ws.upstreams, &Upstream{
+			Type:            DNSDrop,
+			URL:             url,
+			RequestType:     "application/dnsdrop-json",
+			weight:          weight,
+			effectiveWeight: weight,
+		})
 	default:
 		return errors.New("unknown upstream type")
 	}
@@ -71,6 +78,8 @@ func (ws *NginxWRRSelector) StartEvaluate() {
 						// www.example.com
 						upstreamURL += "?dns=q80BAAABAAAAAAAAA3d3dwdleGFtcGxlA2NvbQAAAQAB"
 						acceptType = "application/dns-message"
+					case DNSDrop:
+						acceptType = "application/dnsdrop-json"
 					}
 
 					req, err := http.NewRequest(http.MethodGet, upstreamURL, nil)
@@ -96,9 +105,10 @@ func (ws *NginxWRRSelector) StartEvaluate() {
 					switch ws.upstreams[i].Type {
 					case Google:
 						ws.checkGoogleResponse(resp, ws.upstreams[i])
-
 					case IETF:
 						ws.checkIETFResponse(resp, ws.upstreams[i])
+					case DNSDrop:
+						ws.checkDNSDropResponse(resp, ws.upstreams[i])
 					}
 				}(i)
 			}
@@ -187,6 +197,22 @@ func (ws *NginxWRRSelector) checkGoogleResponse(resp *http.Response, upstream *U
 }
 
 func (ws *NginxWRRSelector) checkIETFResponse(resp *http.Response, upstream *Upstream) {
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		// server error
+		if atomic.AddInt32(&upstream.effectiveWeight, -5) < 1 {
+			atomic.StoreInt32(&upstream.effectiveWeight, 1)
+		}
+		return
+	}
+
+	if atomic.AddInt32(&upstream.effectiveWeight, 5) > upstream.weight {
+		atomic.StoreInt32(&upstream.effectiveWeight, upstream.weight)
+	}
+}
+
+func (ws *NginxWRRSelector) checkDNSDropResponse(resp *http.Response, upstream *Upstream) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {

@@ -48,6 +48,14 @@ func (ls *LVSWRRSelector) Add(url string, upstreamType UpstreamType, weight int3
 			effectiveWeight: weight,
 		})
 
+	case DNSDrop:
+		ls.upstreams = append(ls.upstreams, &Upstream{
+			Type:            DNSDrop,
+			URL:             url,
+			RequestType:     "application/dnsdrop-json",
+			weight:          weight,
+			effectiveWeight: weight,
+		})
 	default:
 		return errors.New("unknown upstream type")
 	}
@@ -73,11 +81,13 @@ func (ls *LVSWRRSelector) StartEvaluate() {
 					case Google:
 						upstreamURL += "?name=www.example.com&type=A"
 						acceptType = "application/dns-json"
-
 					case IETF:
 						// www.example.com
 						upstreamURL += "?dns=q80BAAABAAAAAAAAA3d3dwdleGFtcGxlA2NvbQAAAQAB"
 						acceptType = "application/dns-message"
+					case DNSDrop:
+						upstreamURL += ""
+						acceptType = "application/dnsdrop-json"
 					}
 
 					req, err := http.NewRequest(http.MethodGet, upstreamURL, nil)
@@ -103,9 +113,10 @@ func (ls *LVSWRRSelector) StartEvaluate() {
 					switch ls.upstreams[i].Type {
 					case Google:
 						ls.checkGoogleResponse(resp, ls.upstreams[i])
-
 					case IETF:
 						ls.checkIETFResponse(resp, ls.upstreams[i])
+					case DNSDrop:
+						ls.checkDNSDropResponse(resp, ls.upstreams[i])
 					}
 				}(i)
 			}
@@ -230,6 +241,22 @@ func (ls *LVSWRRSelector) checkGoogleResponse(resp *http.Response, upstream *Ups
 	// should I check error in detail?
 	if atomic.AddInt32(&upstream.effectiveWeight, -2) < 1 {
 		atomic.StoreInt32(&upstream.effectiveWeight, 1)
+	}
+}
+
+func (ls *LVSWRRSelector) checkDNSDropResponse(resp *http.Response, upstream *Upstream) {
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		// server error
+		if atomic.AddInt32(&upstream.effectiveWeight, -3) < 1 {
+			atomic.StoreInt32(&upstream.effectiveWeight, 1)
+		}
+		return
+	}
+
+	if atomic.AddInt32(&upstream.effectiveWeight, 5) > upstream.weight {
+		atomic.StoreInt32(&upstream.effectiveWeight, upstream.weight)
 	}
 }
 
