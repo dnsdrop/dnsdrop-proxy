@@ -442,6 +442,8 @@ func (c *Client) handlerFunc(w dns.ResponseWriter, r *dns.Msg, isTCP bool) {
 
 		case "application/dns-message":
 			c.parseResponseIETF(ctx, w, r, isTCP, req)
+		case "application/dnsdrop-json":
+			c.parseResponseDNSDrop(ctx, w, r, isTCP, req)
 
 		default:
 			panic("Unknown response Content-Type")
