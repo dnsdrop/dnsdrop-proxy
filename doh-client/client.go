@@ -257,18 +257,21 @@ func (c *Client) newHTTPClient() error {
 		// DualStack: true,
 		Resolver: c.bootstrapResolver,
 	}
+
 	c.httpTransport = &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
 		},
 		DialContext:           dialer.DialContext,
 		ExpectContinueTimeout: 1 * time.Second,
-		IdleConnTimeout:       90 * time.Second,
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       9000 * time.Second,
+		MaxIdleConns:          1,
+		MaxIdleConnsPerHost:   50,
 		Proxy:                 http.ProxyFromEnvironment,
 		TLSHandshakeTimeout:   time.Duration(c.conf.Other.Timeout) * time.Second,
+		DisableKeepAlives:     true,
 	}
+
 	if c.conf.Other.NoIPv6 {
 		c.httpTransport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 			if strings.HasPrefix(network, "tcp") {

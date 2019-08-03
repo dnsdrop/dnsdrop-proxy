@@ -40,14 +40,24 @@ func (c *Client) generateRequestDNSDrop(ctx context.Context, w dns.ResponseWrite
 		},
 	}
 
-	fmt.Println("GENERATE ID", r.Id)
-	j, _ := json.Marshal(obj)
-	fmt.Println(string(j))
+	j, err := json.Marshal(obj)
+	if err != nil {
+		log.Println(err)
+
+		reply := jsonDNS.PrepareReply(r)
+		reply.Rcode = dns.RcodeServerFailure
+		w.WriteMsg(reply)
+
+		return &DNSRequest{
+			err: err,
+		}
+	}
 
 	requestURL := upstream.URL + "/_dns/"
 	requestDAT := strings.NewReader(string(j))
 
 	req, err := http.NewRequest(http.MethodPost, requestURL, requestDAT)
+	//req.Close = true
 
 	if err != nil {
 		log.Println(err, req)
@@ -65,6 +75,8 @@ func (c *Client) generateRequestDNSDrop(ctx context.Context, w dns.ResponseWrite
 
 	c.httpClientMux.RLock()
 	resp, err := c.httpClient.Do(req)
+	//client := new(http.Client)
+	//resp, err := client.Do(req)
 	c.httpClientMux.RUnlock()
 
 	if err != nil {
@@ -85,7 +97,6 @@ func (c *Client) generateRequestDNSDrop(ctx context.Context, w dns.ResponseWrite
 		udpSize = opt.UDPSize()
 	}
 
-	fmt.Println("hi")
 	return &DNSRequest{
 		response:        resp,
 		reply:           jsonDNS.PrepareReply(r),
@@ -93,64 +104,6 @@ func (c *Client) generateRequestDNSDrop(ctx context.Context, w dns.ResponseWrite
 		currentUpstream: upstream.URL,
 	}
 }
-
-/*
-{
-  "_rcode": 0,
-  "_opcode": 0,
-  "_answerfrom": {
-    "_data": "127.0.0.53",
-    "_type": 5
-  },
-  "_additional": [],
-  "_authority": [],
-  "_answer": [
-    {
-      "_rr_question": false,
-      "_rdata_fields": [
-        {
-          "_data": "172.217.3.110",
-          "_type": 5
-        }
-      ],
-      "_rr_class": 1,
-      "_rr_type": 1,
-      "_rd_count": 1,
-      "_ttl": 164,
-      "_owner": {
-        "_data": "google.com.",
-        "_type": 1
-      }
-    }
-  ],
-  "_question": [
-    {
-      "_rr_question": true,
-      "_rdata_fields": [],
-      "_rr_class": 1,
-      "_rr_type": 1,
-      "_rd_count": 0,
-      "_ttl": 3600,
-      "_owner": {
-        "_data": "google.com.",
-        "_type": 1
-      }
-    }
-  ],
-  "_arcount": 0,
-  "_nscount": 0,
-  "_ancount": 1,
-  "_qdcount": 1,
-  "_id": 0,
-  "_ad": false,
-  "_ra": true,
-  "_cd": false,
-  "_rd": true,
-  "_tc": false,
-  "_aa": false,
-  "_qr": true
-}
-*/
 
 type DNSDropRDF struct {
 	Data string `json:"_data"`
@@ -192,9 +145,9 @@ type DNSDropRequest struct {
 }
 
 func (c *Client) parseResponseDNSDrop(ctx context.Context, w dns.ResponseWriter, r *dns.Msg, isTCP bool, req *DNSRequest) {
-	fmt.Println("h jfkdsljflsajflksjdlfjdsli")
+
 	if req.response.StatusCode != http.StatusOK {
-		log.Printf("HTTP error from upstream %s: %s\n", req.currentUpstream, req.response.Status)
+		log.Printf("HTTP error from upstream %s: %s (%v)\n", req.currentUpstream, req.response.Status, req.response)
 		req.reply.Rcode = dns.RcodeServerFailure
 		contentType := req.response.Header.Get("Content-Type")
 		if contentType != "application/dnsdrop-json" && !strings.HasPrefix(contentType, "application/dnsdrop-json;") {
@@ -204,6 +157,7 @@ func (c *Client) parseResponseDNSDrop(ctx context.Context, w dns.ResponseWriter,
 	}
 
 	body, err := ioutil.ReadAll(req.response.Body)
+	req.response.Body.Close()
 
 	if err != nil {
 		req.reply.Rcode = dns.RcodeServerFailure
@@ -214,10 +168,6 @@ func (c *Client) parseResponseDNSDrop(ctx context.Context, w dns.ResponseWriter,
 	var result DNSDropRequest
 
 	json.Unmarshal(body, &result)
-	fmt.Println("FUCK", result.ID)
-
-	j, _ := json.Marshal(result)
-	fmt.Println(string(j))
 
 	dnsMsg := new(dns.Msg)
 	dnsMsg.Rcode = result.Rcode
@@ -231,11 +181,6 @@ func (c *Client) parseResponseDNSDrop(ctx context.Context, w dns.ResponseWriter,
 	dnsMsg.RecursionAvailable = result.RA
 	dnsMsg.AuthenticatedData = result.AD
 
-	fmt.Println("ID is", dnsMsg.Id)
-	/*
-	 */
-
-	//dnsMsg.SetQuestion()
 	dnsMsg.Question = make([]dns.Question, 1)
 	question := dns.Question{}
 	question.Name = result.Question[0].Owner.Data
@@ -243,8 +188,6 @@ func (c *Client) parseResponseDNSDrop(ctx context.Context, w dns.ResponseWriter,
 	question.Qtype = result.Question[0].Type
 	dnsMsg.Question[0] = question
 
-	// 	zone := fmt.Sprintf("%s %d IN %s %s", rr.Name, rr.TTL, rrType, rr.Data)
-	// dnsRR, err = dns.NewRR(zone)
 	if result.Ancount > 0 {
 		dnsMsg.Answer = make([]dns.RR, result.Ancount)
 
@@ -257,41 +200,26 @@ func (c *Client) parseResponseDNSDrop(ctx context.Context, w dns.ResponseWriter,
 			zone := fmt.Sprintf("%s %d IN %s %s", inRR.Owner.Data, inRR.TTL, rrType, inRR.RDataFields[0].Data)
 			dnsRR, _ := dns.NewRR(zone)
 			dnsMsg.Answer[i] = dnsRR
-			/*
-
-				   	type RR_Header struct {
-						Name     string `dns:"cdomain-name"`
-						Rrtype   uint16
-						Class    uint16
-						Ttl      uint32
-						Rdlength uint16 // Length of data after header.
-					}
-			*/
-
-			/*
-				rr := new(dns.RR) //dns.RR_Header{}
-				rr.Name = inRR.Owner.Data
-				rr.Rrtype = inRR.Type
-				rr.Class = inRR.Class
-				rr.Ttl = inRR.TTL
-
-				dnsMsg.Answer = append(dns.RR{rr}, dnsMsg.Answer)
-			*/
-
 		}
 	}
-	//fmt.Println("FUCK", Q)
-	//FUCK [map[_rr_class:1 _rr_type:1 _rd_count:0 _ttl:3600 _owner:map[_data:google.com. _type:1] _rr_question:true _rdata_fields:[]]]
 
-	/*
-		dnsMsg.Question[0] = dns.Question{
-			Name:   result["_question"][0]["_owner"]["_data"].(string),
-			Qtype:  uint16(result["_question"][0]["_rr_type"].(float64)),
-			Qclass: uint16(result["_question"][0]["_rr_class"].(float64)),
+	if result.Arcount > 0 {
+		dnsMsg.Extra = make([]dns.RR, result.Arcount)
+
+		for i, inRR := range result.Additional {
+			rrType, ok := dns.TypeToString[inRR.Type]
+			if !ok {
+				rrType = "A"
+			}
+
+			zone := fmt.Sprintf("%s %d IN %s %s", inRR.Owner.Data, inRR.TTL, rrType, inRR.RDataFields[0].Data)
+			dnsRR, err := dns.NewRR(zone)
+			if err != nil {
+				fmt.Println(err)
+			}
+			dnsMsg.Extra[i] = dnsRR
 		}
-	*/
-
-	//dnsMsg.Answer = make([]dns.RR, int(result["_ancount"].(float64)))
+	}
 
 	buf, err := dnsMsg.Pack()
 	if err != nil {
@@ -300,8 +228,6 @@ func (c *Client) parseResponseDNSDrop(ctx context.Context, w dns.ResponseWriter,
 		w.WriteMsg(req.reply)
 		return
 	}
-
-	fmt.Println(string(body))
 
 	w.Write(buf)
 }
